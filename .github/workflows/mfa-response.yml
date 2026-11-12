@@ -1,0 +1,52 @@
+name: MFA Encrypted Response
+run-name: MFA response for run ${{ inputs.target_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_run_id:
+        description: 'Original waiting workflow run ID'
+        required: true
+        type: string
+      challenge_id:
+        description: 'One-time challenge ID from challenge.json'
+        required: true
+        type: string
+      encrypted_code:
+        description: 'RSA-OAEP encrypted reply; never enter a plaintext verification code'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate encrypted envelope
+        env:
+          TARGET_RUN_ID: ${{ inputs.target_run_id }}
+          CHALLENGE_ID: ${{ inputs.challenge_id }}
+          ENCRYPTED_CODE: ${{ inputs.encrypted_code }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, re
+          from pathlib import Path
+          if not re.fullmatch(r'[0-9]{1,20}', os.environ['TARGET_RUN_ID']):
+              raise SystemExit('Invalid target run ID')
+          if not re.fullmatch(r'[a-f0-9]{32}', os.environ['CHALLENGE_ID']):
+              raise SystemExit('Invalid challenge ID')
+          encrypted = os.environ['ENCRYPTED_CODE']
+          if len(encrypted) != 344 or len(base64.b64decode(encrypted, validate=True)) != 256:
+              raise SystemExit('Only encrypted 2048-bit RSA replies are accepted')
+          Path('response.json').write_text(json.dumps({'encrypted_code': encrypted}), encoding='utf-8')
+          PY
+      - name: Deliver encrypted reply
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: mfa-response-${{ inputs.target_run_id }}-${{ inputs.challenge_id }}
+          path: response.json
+          if-no-files-found: error
+          retention-days: 1

@@ -14,9 +14,23 @@ on:
         options:
           - login
           - run
+      request_mfa:
+        description: '本人在线时发送一次学校验证码并等待加密回复'
+        required: true
+        default: false
+        type: boolean
+      mfa_channel:
+        description: '学校二次验证方式'
+        required: true
+        default: securephone
+        type: choice
+        options:
+          - securephone
+          - secureemail
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: xjtu-sport-${{ github.repository }}
@@ -25,7 +39,7 @@ concurrency:
 jobs:
   sport:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: '1'
@@ -40,10 +54,12 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Check configuration and execute
+      - name: Authenticate or prepare manual verification
+        id: auth
         env:
           SPORT_USER: ${{ secrets.SPORT_USER }}
           SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
+          SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
           SPORT_LONGITUDE: ${{ vars.SPORT_LONGITUDE || '108.654387' }}
           SPORT_LATITUDE: ${{ vars.SPORT_LATITUDE || '34.257229' }}
           SPORT_SEND_EMAIL: ${{ vars.SPORT_SEND_EMAIL || 'false' }}
@@ -52,17 +68,42 @@ jobs:
           SPORT_EMAIL_RECEIVER: ${{ secrets.SPORT_EMAIL_RECEIVER }}
           SPORT_SEND_DESKTOP_NOTIFICATION: 'false'
           EXECUTION_MODE: ${{ github.event_name == 'schedule' && 'run' || inputs.mode }}
+          REQUEST_MFA: ${{ github.event_name == 'workflow_dispatch' && inputs.request_mfa && 'true' || 'false' }}
+          MFA_CHANNEL: ${{ inputs.mfa_channel || 'securephone' }}
         run: |
           if [[ -z "$SPORT_USER" || -z "$SPORT_PASSWORD" ]]; then
             echo '::error::Add repository secrets SPORT_USER and SPORT_PASSWORD in Settings > Secrets and variables > Actions.'
             exit 2
           fi
           python sport_bot.py --check-config
-          case "$EXECUTION_MODE" in
-            login) python sport_bot.py --check-login ;;
-            run) python sport_bot.py ;;
-            *) echo '::error::Unknown execution mode'; exit 2 ;;
-          esac
+          python scripts/github_auth.py prepare --mode "$EXECUTION_MODE" --request-mfa "$REQUEST_MFA" --channel "$MFA_CHANNEL"
+      - name: Publish one-time public verification key
+        if: steps.auth.outputs.mfa_required == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: mfa-challenge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .generated/mfa/public/challenge.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for encrypted code and continue the same login
+        if: steps.auth.outputs.mfa_required == 'true'
+        env:
+          SPORT_USER: ${{ secrets.SPORT_USER }}
+          SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
+          SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
+          SPORT_LONGITUDE: ${{ vars.SPORT_LONGITUDE || '108.654387' }}
+          SPORT_LATITUDE: ${{ vars.SPORT_LATITUDE || '34.257229' }}
+          SPORT_SEND_EMAIL: ${{ vars.SPORT_SEND_EMAIL || 'false' }}
+          SPORT_SMTP_AUTH_CODE: ${{ secrets.SPORT_SMTP_AUTH_CODE }}
+          SPORT_EMAIL_SENDER: ${{ secrets.SPORT_EMAIL_SENDER }}
+          SPORT_EMAIL_RECEIVER: ${{ secrets.SPORT_EMAIL_RECEIVER }}
+          SPORT_SEND_DESKTOP_NOTIFICATION: 'false'
+          GH_MFA_ARTIFACT_TOKEN: ${{ github.token }}
+        run: python scripts/github_auth.py resume
+      - name: Remove private login state
+        if: always()
+        run: python -c "from pathlib import Path; Path('.generated/mfa/private-session.json').unlink(missing_ok=True)"
       - name: Run summary
         if: always()
         env:

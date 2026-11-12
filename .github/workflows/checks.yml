@@ -92,6 +92,7 @@ jobs:
         env:
           SPORT_USER: ${{ secrets.SPORT_USER }}
           SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
+          SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
         run: |
           python sport_bot.py --check-config
           python sport_bot.py --check-login

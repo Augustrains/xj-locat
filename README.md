@@ -6,10 +6,19 @@
 
 ## GitHub Actions 每日运行
 
+### 当前部署状态（2026-11-12）
+
+代码已部署到 `Augustrains/xj-locat`。在 GitHub 托管 Ubuntu 运行环境中，10 项离线测试及配置检查通过；OAuth 接口返回 HTTP 302，CAS 公钥接口和体育前端均返回 HTTP 200。两个必填 Repository secrets 已被成功读取。
+
+真实登录在 MFA 检测阶段收到 `need=True`，学校要求额外安全验证，因此未执行签到、等待或签退。运行记录见 [云端验证结果](https://github.com/Augustrains/xj-locat/actions/runs/43137583320)。
+
+首次自动登录在额外验证处停止后，已补充学校原生手机/邮箱验证码流程和同一 GitHub job 内的加密回复通道。该流程需要本人在线参与；真实 MFA 和后续独立登录的结果仍待验证。定时配置保留为北京时间 12:07，只有实际验证通过后才视为可无人值守运行。
+
 仓库包含两个工作流：
 
-- **XJTU Daily Sport**：每天北京时间 **12:07** 执行签到、等待 31 分钟、签退。UTC 定时表达式为 `7 4 * * *`，任务超时为 45 分钟。同一时间只运行一个打卡任务，新任务不会取消正在等待签退的任务。
+- **XJTU Daily Sport**：每天北京时间 **12:07** 执行签到、等待 31 分钟、签退。UTC 定时表达式为 `7 4 * * *`，任务超时为 55 分钟。同一时间只运行一个打卡任务，新任务不会取消正在等待签退的任务。
 - **Project Checks**：推送到 `main` 后自动运行离线测试、配置检查和不带账号的学校接口连通性探测；检查通过后，使用仓库 Secrets 验证学校登录。不会执行签到或签退。拉取请求只运行离线检查，不读取账号密码。
+- **MFA Encrypted Response**：只接收临时公钥加密的验证码回复，生成回复附件供原登录任务读取。不得在其输入框中填写明文验证码。
 
 ### 必填配置
 
@@ -19,6 +28,7 @@
 | --- | --- |
 | `SPORT_USER` | 学号 |
 | `SPORT_PASSWORD` | 统一身份认证密码 |
+| `SPORT_CLIENT_ID` | 本脚本客户端的固定随机标识，建议用 `python -c "import secrets; print(secrets.token_hex(16))"` 生成，勿频繁更换 |
 
 使用 **Repository secrets**，不需要创建 Environment。工作流直接读取环境变量，不需要上传 `.env`。代码、依赖、配置示例和测试可以上传；`.env`、`.venv`、日志和 `.generated` 不应提交。
 
@@ -28,6 +38,18 @@
 2. 打开 **Actions → XJTU Daily Sport → Run workflow**，选择 `main` 分支。
 3. `mode=login` 只检查登录；`mode=run` 执行一次完整签到、等待和签退，通常需要 32～36 分钟。手动默认选项为 `login`。
 4. 确认一次 `run` 成功后，继续观察每日 12:07 的定时结果。学校确认当天已有积分时，脚本正常退出并跳过等待。
+
+### 学校要求短信或安全邮箱验证码时
+
+1. 本人在线时，手动运行 **XJTU Daily Sport**，选择 `mode=login`，勾选 `request_mfa`，按需选择 `securephone` 或 `secureemail`。无人值守的每日运行不会自动发送验证码。
+2. 学校确认发送验证码后，任务发布 `mfa-challenge-运行ID-尝试次数` 附件并等待最多 10 分钟。下载其中的 `challenge.json`。
+3. 在本地项目目录运行 `python scripts/encrypt_mfa_reply.py challenge.json .generated/mfa-reply.json`，按提示输入验证码。如本人同意学校的“设为可信客户端”选项，增加 `--trust-client`；默认不勾选。
+4. 将加密回复交给专用工作流：`gh workflow run mfa-response.yml --repo Augustrains/xj-locat --ref main --json < .generated/mfa-reply.json`（PowerShell 使用 `Get-Content -Raw .generated/mfa-reply.json | gh workflow run mfa-response.yml --repo Augustrains/xj-locat --ref main --json`）。
+5. 原任务在同一机器、同一登录会话中校验验证码并继续。过期或校验失败时停止，不自动反复发送或猜测验证码。
+
+回复附件使用 RSA-OAEP SHA-256 加密，临时私钥和登录 Cookie 只留在原 job；公开附件没有明文验证码、私钥或登录会话。一次性回复只能用于对应运行和对应挑战。
+
+MFA 登录通过后，再启动一次 `request_mfa=false` 的独立登录检查。只有该检查也成功，才有依据判断下一次定时登录可以自动完成；学校仍可能根据新的网络来源要求验证。
 
 工作流默认关闭桌面通知和邮件。Actions 页面提供步骤日志与运行摘要，不上传额外日志附件。日志会过滤配置中的账号密码、邮件授权码和认证 URL 参数。
 
@@ -46,7 +68,7 @@
 ### 运行限制
 
 - GitHub 定时任务可能延迟或漏执行，不保证准时到秒；工作流必须在默认分支 `main`。公开仓库连续 60 天无仓库活动，定时任务会自动停用，需要在 Actions 页面重新启用。
-- 云端网络连通、学校登录成功、完整打卡成功是三个不同的验证结果。学校接口可能限制网络来源，CAS 也可能要求额外验证；本脚本遇到验证码或短信验证会停止。
+- 云端网络连通、学校登录成功、完整打卡成功是三个不同的验证结果。学校接口可能限制网络来源，CAS 也可能要求额外验证；无人值守任务遇到额外验证会停止，手动任务可由本人完成安全手机或安全邮箱验证。
 - 每次登录创建新的会话，不保存可信设备 Cookie。浏览器手动登录成功不代表 GitHub 运行环境可以免验证。
 - 签到成功后如果任务被取消或签退失败，需要检查学校系统；脚本没有跨任务恢复未完成签退的功能，不要在 31 分钟等待中取消任务。
 - 标准公开仓库运行环境免费；私有仓库会计入账号 Actions 额度，31 分钟等待也计算执行时长。

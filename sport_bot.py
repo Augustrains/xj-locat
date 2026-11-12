@@ -38,6 +38,7 @@ class Config:
     # ========== 用户信息配置 ==========
     USER = ""  # 从本地 .env 或环境变量加载
     PASSWORD = ""  # 从本地 .env 或环境变量加载
+    CLIENT_ID = ""  # 当前脚本客户端的随机标识；验证成功后可由用户选择信任
 
     # ========== 地理位置配置 ==========
     LONGITUDE = 108.654387  # 经度
@@ -81,7 +82,7 @@ class RedactSecretsFilter(logging.Filter):
     def filter(self, record):
         message = record.getMessage()
         for secret in sorted(
-            (Config.USER, Config.PASSWORD, Config.SMTP_AUTH_CODE),
+            (Config.USER, Config.PASSWORD, Config.SMTP_AUTH_CODE, Config.CLIENT_ID),
             key=len, reverse=True,
         ):
             if secret:
@@ -135,7 +136,7 @@ def load_config():
                     raise ValueError(f".env 第 {number} 行引号未闭合")
                 value = value[1:-1]
             values[key.strip()] = value
-    for name in ("USER", "PASSWORD", "LONGITUDE", "LATITUDE", "SEND_EMAIL",
+    for name in ("USER", "PASSWORD", "CLIENT_ID", "LONGITUDE", "LATITUDE", "SEND_EMAIL",
                  "SMTP_AUTH_CODE", "EMAIL_SENDER", "EMAIL_RECEIVER",
                  "SEND_DESKTOP_NOTIFICATION"):
         key = f"SPORT_{name}"
@@ -235,118 +236,80 @@ def diagnose_login_response(html: str) -> str:
             return "登录失败，请检查学号和密码是否正确。"
     return f"响应内容片段: {html[:200]}"
 
-def get_token(user, password):
-    """
-    增强版：获取访问令牌（带错误诊断）
-    """
+def prepare_login(user, password):
+    """建立原始登录会话，保留提交表单与 MFA 检测结果。"""
+    sess = requests.Session()
+    sess.trust_env = False
+    sess.headers.update({"User-Agent": Config.UA})
     try:
-        sess = requests.Session()
-        sess.trust_env = False 
-        sess.headers.update({"User-Agent": Config.UA})
-
-        # Step 1: /authorize
-        r0 = sess.get(
-            Config.OPEN_OAUTH,
-            params={
-                "appId": Config.APP_ID,
-                "redirectUri": Config.REDIR,
-                "responseType": "code",
-                "scope": "user_info",
-                "state": Config.STATE,
-            },
-            allow_redirects=False,
-            timeout=30,
-        )
+        r0 = sess.get(Config.OPEN_OAUTH, params={
+            "appId": Config.APP_ID, "redirectUri": Config.REDIR,
+            "responseType": "code", "scope": "user_info", "state": Config.STATE,
+        }, allow_redirects=False, timeout=30)
         if "Location" not in r0.headers:
-            logging.error(f"Step 1 失败，未获取到跳转地址。状态码: {r0.status_code}")
+            raise RuntimeError(f"OAuth 未返回跳转地址，HTTP {r0.status_code}")
+        page = sess.get(urljoin(r0.url, r0.headers["Location"]), timeout=30)
+        page.raise_for_status()
+        form = extract_form_inputs(page.text)
+        form["fpVisitorId"] = Config.CLIENT_ID or form.get("fpVisitorId", "")
+        public_key = sess.get(Config.CAS_PUBKEY, timeout=30)
+        public_key.raise_for_status()
+        encrypted_password = rsa_encrypt(password, public_key.text)
+        form.update({"username": user, "password": encrypted_password})
+        result = mfa_detect(sess, user, encrypted_password, form["fpVisitorId"], page.url)
+        if not result or result.get("code") != 0 or not isinstance(result.get("data"), dict):
+            raise RuntimeError("MFA 检测失败，请检查学校认证要求")
+        data = result["data"]
+        if not isinstance(data.get("need"), bool):
+            raise RuntimeError("学校返回了无法识别的 MFA 状态")
+        if data.get("state"):
+            form["mfaState"] = data["state"]
+        logging.info("MFA 检测成功，需额外验证: %s", data["need"])
+        return {"session": sess, "form_data": form,
+                "login_post_url": extract_form_action(page.text, page.url),
+                "cas_login_url": page.url, "mfa_required": data["need"]}
+    except Exception:
+        sess.close()
+        raise
+
+
+def finish_login(context):
+    """在相同会话中完成已通过所需验证的原始登录表单。"""
+    sess = context["session"]
+    response = sess.post(context["login_post_url"], data=context["form_data"],
+                         headers={"Referer": context["cas_login_url"]},
+                         allow_redirects=False, timeout=30)
+    if response.status_code != 302 or "Location" not in response.headers:
+        raise RuntimeError(f"登录提交未完成，HTTP {response.status_code}；{diagnose_login_response(response.text)}")
+    final = sess.get(urljoin(context["login_post_url"], response.headers["Location"]), timeout=30)
+    final.raise_for_status()
+    query = parse_qs(urlparse(final.url).query)
+    if not query:
+        raise RuntimeError("回调地址解析失败，登录流程未完成")
+    token_response = sess.get(Config.CODE_LOGIN, headers={"Referer": final.url},
+                              params={key: values[0] for key, values in query.items()}, timeout=30)
+    token_response.raise_for_status()
+    result = token_response.json()
+    token = (result.get("data") or {}).get("token")
+    if not token:
+        raise RuntimeError("学校业务系统未返回访问令牌")
+    return token
+
+
+def get_token(user, password):
+    context = None
+    try:
+        context = prepare_login(user, password)
+        if context["mfa_required"]:
+            logging.error("CAS 要求额外安全验证。请手动运行 GitHub 工作流并启用 request_mfa，由本人完成验证码验证。")
             return None
-        cas_auth = r0.headers["Location"]
-
-        # Step 2 & 3: CAS Login Page
-        r_login_page = sess.get(cas_auth, allow_redirects=True, timeout=30)
-        cas_login_url = r_login_page.url
-        page = r_login_page.text
-            
-        form_data = extract_form_inputs(page)
-        login_post_url = extract_form_action(page, cas_login_url)
-
-        # Step 4: RSA
-        pubkey = sess.get(Config.CAS_PUBKEY, timeout=30).text
-        encrypted_pwd = rsa_encrypt(password, pubkey)
-        
-        form_data.update({
-            "username": user,
-            "password": encrypted_pwd,
-        })
-
-        # Step 4.5: MFA
-        mfa_res = mfa_detect(sess, user, encrypted_pwd, form_data.get("fpVisitorId", ""), cas_login_url)
-        if mfa_res and mfa_res.get("code") == 0:
-            mfa_state = mfa_res.get("data", {}).get("state", "")
-            mfa_need = mfa_res.get("data", {}).get("need")
-            if mfa_state:
-                form_data["mfaState"] = mfa_state
-                logging.info(f"MFA检测成功，需额外验证: {mfa_need}")
-            if mfa_need:
-                logging.error("CAS要求额外安全验证，脚本无法在无验证码/短信码的情况下继续登录。")
-                logging.error("请先用浏览器登录统一身份认证，并在安全验证后勾选/设置可信客户端，再重新运行脚本。")
-                return None
-        else:
-            logging.error("MFA检测失败，请检查网络或在浏览器中确认认证要求")
-            return None
-
-        # Step 5: Post Login (关键步骤)
-        r_post = sess.post(
-            login_post_url,
-            data=form_data,
-            headers={"Referer": cas_login_url},
-            allow_redirects=False,
-            timeout=30,
-        )
-
-        # --- 诊断逻辑开始 ---
-        if r_post.status_code != 302:
-            logging.error(f"登录 POST 失败。状态码: {r_post.status_code}")
-            logging.error(f"诊断结果：{diagnose_login_response(r_post.text)}")
-            return None
-        # --- 诊断逻辑结束 ---
-
-        # Step 6: Follow callback
-        callback_url = r_post.headers["Location"]
-        final = sess.get(callback_url, allow_redirects=True, timeout=30)
-        
-        # 检查是否成功进入业务系统
-        if "token" not in final.url and "code" not in final.url:
-            # 有时需要二次跳转
-            qs = parse_qs(urlparse(final.url).query)
-            if not qs:
-                logging.error("回调地址解析失败，可能登录流程未完成")
-                return None
-        
-        qs = parse_qs(urlparse(final.url).query)
-        params = {k: v[0] for k, v in qs.items()}
-
-        # Step 7: Final Token
-        response = sess.get(
-            Config.CODE_LOGIN,
-            headers={"Referer": final.url},
-            params=params,
-            timeout=30,
-        )
-
-        res_json = response.json()
-        if res_json.get("code") == 200 or res_json.get("data"):
-            token = res_json["data"]["token"]
-            return token
-        else:
-            logging.error(f"Token 获取失败: {res_json.get('msg')}")
-            return None
-
-    except Exception as e:
-        logging.error(f"获取访问令牌失败: {str(e)}")
-        import traceback
-        logging.error(traceback.format_exc()) # 打印完整错误堆栈
+        return finish_login(context)
+    except Exception as error:
+        logging.error("获取访问令牌失败: %s", error)
         return None
+    finally:
+        if context:
+            context["session"].close()
 
 
 class SignResult(Enum):
@@ -452,14 +415,15 @@ def notify_failure(content: str) -> None:
     send_desktop_notification("XJTU运动打卡失败", message, urgency="critical")
 
 
-def main() -> int:
+def main(token=None) -> int:
     logging.info("=" * 50)
     logging.info("XJTU运动打卡程序启动")
     logging.info("=" * 50)
 
     try:
         # 1. 获取Token
-        token = get_token(Config.USER, Config.PASSWORD)
+        if token is None:
+            token = get_token(Config.USER, Config.PASSWORD)
         if not token:
             message = "无法获取Token，请检查账号密码或校内网连接"
             logging.error(message)

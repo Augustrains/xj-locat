@@ -19,6 +19,7 @@
 - **XJTU Daily Sport**：每天北京时间 **12:07** 执行签到、等待 31 分钟、签退。UTC 定时表达式为 `7 4 * * *`，任务超时为 55 分钟。同一时间只运行一个打卡任务，新任务不会取消正在等待签退的任务。
 - **Project Checks**：推送到 `main` 后自动运行离线测试、配置检查和不带账号的学校接口连通性探测；检查通过后，使用仓库 Secrets 验证学校登录。不会执行签到或签退。拉取请求只运行离线检查，不读取账号密码。
 - **MFA Encrypted Response**：只接收临时公钥加密的验证码回复，生成回复附件供原登录任务读取。不得在其输入框中填写明文验证码。
+- **XJTU Manual Login**：只有手动触发，没有定时事件，执行模式固定为登录检查。用于每日打卡启用前的人工 MFA 验证和独立登录复验。
 
 ### 必填配置
 
@@ -41,7 +42,7 @@
 
 ### 学校要求短信或安全邮箱验证码时
 
-1. 本人在线时，手动运行 **XJTU Daily Sport**，选择 `mode=login`，勾选 `request_mfa`，按需选择 `securephone` 或 `secureemail`。无人值守的每日运行不会自动发送验证码。
+1. 本人在线时，手动运行 **XJTU Manual Login**，勾选 `request_mfa`，按需选择 `securephone` 或 `secureemail`。它没有定时事件，不会执行签到或签退。无人值守的每日运行不会自动发送验证码。
 2. 学校确认发送验证码后，任务发布 `mfa-challenge-运行ID-尝试次数` 附件并等待最多 10 分钟。下载其中的 `challenge.json`。
 3. 在本地项目目录运行 `python scripts/encrypt_mfa_reply.py challenge.json .generated/mfa-reply.json`，按提示输入验证码。如本人同意学校的“设为可信客户端”选项，增加 `--trust-client`；默认不勾选。
 4. 将加密回复交给专用工作流：`gh workflow run mfa-response.yml --repo Augustrains/xj-locat --ref main --json < .generated/mfa-reply.json`（PowerShell 使用 `Get-Content -Raw .generated/mfa-reply.json | gh workflow run mfa-response.yml --repo Augustrains/xj-locat --ref main --json`）。

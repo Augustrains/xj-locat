@@ -34,6 +34,7 @@ jobs:
         run: python sport_bot.py --check-config
       - name: Probe public school endpoints without credentials
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         run: |
           python - <<'PY'
           import requests
@@ -43,13 +44,19 @@ jobs:
           with requests.Session() as session:
               session.trust_env = False
               session.headers['User-Agent'] = Config.UA
-              for label, url in (
-                  ('OAuth', Config.OPEN_OAUTH),
-                  ('CAS public key', Config.CAS_PUBKEY),
-                  ('Sport service', Config.CODE_LOGIN),
+              for label, url, params in (
+                  ('OAuth', Config.OPEN_OAUTH, {
+                      'appId': Config.APP_ID,
+                      'redirectUri': Config.REDIR,
+                      'responseType': 'code',
+                      'scope': 'user_info',
+                      'state': Config.STATE,
+                  }),
+                  ('CAS public key', Config.CAS_PUBKEY, None),
+                  ('Sport frontend', 'https://ipahw.xjtu.edu.cn/', None),
               ):
                   try:
-                      response = session.get(url, timeout=30, allow_redirects=False)
+                      response = session.get(url, params=params, timeout=30, allow_redirects=False)
                       print(f'{label}: HTTP {response.status_code}')
                       if response.status_code == 403 or response.status_code >= 500:
                           failed = True

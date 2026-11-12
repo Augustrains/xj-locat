@@ -1,0 +1,11 @@
+[Unit]
+Description=XJTU sport auto check-in bot
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_DIR@
+Environment=PYTHONUNBUFFERED=1
+ExecStart="@PYTHON@" "@PROJECT_DIR@/sport_bot.py"
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=45min

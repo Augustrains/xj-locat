@@ -1,0 +1,90 @@
+name: Project Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run offline regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Check environment-variable configuration
+        env:
+          SPORT_USER: configuration-test
+          SPORT_PASSWORD: configuration-test
+          SPORT_SEND_EMAIL: 'false'
+          SPORT_SEND_DESKTOP_NOTIFICATION: 'false'
+        run: python sport_bot.py --check-config
+      - name: Probe public school endpoints without credentials
+        if: github.event_name != 'pull_request'
+        run: |
+          python - <<'PY'
+          import requests
+          from sport_bot import Config
+
+          failed = False
+          with requests.Session() as session:
+              session.trust_env = False
+              session.headers['User-Agent'] = Config.UA
+              for label, url in (
+                  ('OAuth', Config.OPEN_OAUTH),
+                  ('CAS public key', Config.CAS_PUBKEY),
+                  ('Sport service', Config.CODE_LOGIN),
+              ):
+                  try:
+                      response = session.get(url, timeout=30, allow_redirects=False)
+                      print(f'{label}: HTTP {response.status_code}')
+                      if response.status_code == 403 or response.status_code >= 500:
+                          failed = True
+                  except requests.RequestException as error:
+                      print(f'{label}: {type(error).__name__}')
+                      failed = True
+          if failed:
+              raise SystemExit('School endpoint probe failed; inspect network access before enabling daily use.')
+          print('Endpoints responded. Authentication and sport check-in still require separate validation.')
+          PY
+
+  cloud-login:
+    if: github.event_name == 'push'
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: '1'
+      SPORT_SEND_EMAIL: 'false'
+      SPORT_SEND_DESKTOP_NOTIFICATION: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify school login without sport check-in
+        env:
+          SPORT_USER: ${{ secrets.SPORT_USER }}
+          SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
+        run: |
+          python sport_bot.py --check-config
+          python sport_bot.py --check-login

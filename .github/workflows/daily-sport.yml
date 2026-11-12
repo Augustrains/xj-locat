@@ -1,0 +1,79 @@
+name: XJTU Daily Sport
+
+on:
+  schedule:
+    # 04:07 UTC = 12:07 Asia/Shanghai.
+    - cron: '7 4 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'login: only verify login; run: sign in, wait 31 minutes, sign out'
+        required: true
+        default: login
+        type: choice
+        options:
+          - login
+          - run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xjtu-sport-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check configuration and execute
+        env:
+          SPORT_USER: ${{ secrets.SPORT_USER }}
+          SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
+          SPORT_LONGITUDE: ${{ vars.SPORT_LONGITUDE || '108.654387' }}
+          SPORT_LATITUDE: ${{ vars.SPORT_LATITUDE || '34.257229' }}
+          SPORT_SEND_EMAIL: ${{ vars.SPORT_SEND_EMAIL || 'false' }}
+          SPORT_SMTP_AUTH_CODE: ${{ secrets.SPORT_SMTP_AUTH_CODE }}
+          SPORT_EMAIL_SENDER: ${{ secrets.SPORT_EMAIL_SENDER }}
+          SPORT_EMAIL_RECEIVER: ${{ secrets.SPORT_EMAIL_RECEIVER }}
+          SPORT_SEND_DESKTOP_NOTIFICATION: 'false'
+          EXECUTION_MODE: ${{ github.event_name == 'schedule' && 'run' || inputs.mode }}
+        run: |
+          if [[ -z "$SPORT_USER" || -z "$SPORT_PASSWORD" ]]; then
+            echo '::error::Add repository secrets SPORT_USER and SPORT_PASSWORD in Settings > Secrets and variables > Actions.'
+            exit 2
+          fi
+          python sport_bot.py --check-config
+          case "$EXECUTION_MODE" in
+            login) python sport_bot.py --check-login ;;
+            run) python sport_bot.py ;;
+            *) echo '::error::Unknown execution mode'; exit 2 ;;
+          esac
+      - name: Run summary
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          TRIGGER: ${{ github.event_name }}
+          MODE: ${{ github.event_name == 'schedule' && 'run' || inputs.mode }}
+        run: |
+          {
+            echo "Result: $RESULT"
+            echo "Trigger: $TRIGGER"
+            echo "Mode: $MODE"
+            echo 'Daily schedule: 12:07 Asia/Shanghai (start time may be delayed).'
+            echo 'A successful login check does not perform a sport check-in.'
+          } >> "$GITHUB_STEP_SUMMARY"

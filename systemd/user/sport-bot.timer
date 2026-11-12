@@ -1,0 +1,11 @@
+[Unit]
+Description=Run XJTU sport auto check-in bot every day
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=2min
+Unit=sport-bot.service
+
+[Install]
+WantedBy=timers.target

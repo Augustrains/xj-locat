@@ -1,0 +1,18 @@
+[Unit]
+Description=XJTU sport auto check-in bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=@RUN_USER@
+Group=@RUN_GROUP@
+WorkingDirectory=@PROJECT_DIR@
+Environment=PYTHONUNBUFFERED=1
+ExecStart="@PYTHON@" "@PROJECT_DIR@/sport_bot.py"
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=45min
+
+[Install]
+WantedBy=multi-user.target

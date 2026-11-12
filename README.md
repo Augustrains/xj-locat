@@ -8,13 +8,20 @@
 
 ### 当前部署状态（2026-11-12）
 
-代码已部署到 `Augustrains/xj-locat`。在 GitHub 托管 Ubuntu 运行环境中，10 项离线测试及配置检查通过；OAuth 接口返回 HTTP 302，CAS 公钥接口和体育前端均返回 HTTP 200。两个必填 Repository secrets 已被成功读取。
+代码已部署到 `Augustrains/xj-locat`，每日工作流已启用，计划为**每天北京时间 12:07**。当前实现的 **24 项回归测试全部通过**，学校 OAuth、CAS 公钥和体育前端均已验证连通。
 
-真实登录在 MFA 检测阶段收到 `need=True`，学校要求额外安全验证，因此未执行签到、等待或签退。运行记录见 [云端验证结果](https://github.com/Augustrains/xj-locat/actions/runs/43137583320)。
+真实验证结果：
 
-首次自动登录在额外验证处停止后，已补充学校原生手机/邮箱验证码流程和同一 GitHub job 内的加密回复通道。[本人验证码登录](https://github.com/Augustrains/xj-locat/actions/runs/43139080172)已成功；[新的独立任务](https://github.com/Augustrains/xj-locat/actions/runs/43139452293)也成功登录，MFA 检测返回 `need=False`，未再次发送验证码。
+| 项目 | 结果 / 运行记录 |
+| --- | --- |
+| 本人短信二次验证 | [成功完成验证码验证并获取访问令牌](https://github.com/Augustrains/xj-locat/actions/runs/43139080172) |
+| 全新独立任务登录 | [MFA 返回 `need=False`，无需再次发送验证码](https://github.com/Augustrains/xj-locat/actions/runs/43139452293) |
+| 完整签到和签退 | [2026-11-12 10:11:15 签到成功，等待 31 分钟，10:42:18 签退成功](https://github.com/Augustrains/xj-locat/actions/runs/43139586099) |
+| 最新版与可信客户端选项 | [24 项测试和云端登录均通过](https://github.com/Augustrains/xj-locat/actions/runs/43141790944)，登录读取 `SPORT_TRUST_CLIENT=true`，MFA 返回 `need=False` |
 
-每日北京时间 12:07 的工作流已启用。[完整签到签退测试](https://github.com/Augustrains/xj-locat/actions/runs/43139586099)正在进行；最终结果以该运行记录为准。本人已同意学校的可信客户端选项，保存为仓库变量 `SPORT_TRUST_CLIENT=true`，后续登录按该选择提交。
+本人已明确同意学校的可信客户端选项，选择保存为仓库变量 `SPORT_TRUST_CLIENT=true`。账号、密码和固定随机客户端 ID 使用 Repository secrets。验证码通过一次性公钥加密传入，不保存为仓库 Secret，不出现在公开日志中。
+
+以上记录证明本次环境下完整流程成功，不能保证学校永远不再要求验证；再次出现 MFA 时，使用下面的手动验证流程。
 
 仓库包含以下工作流：
 

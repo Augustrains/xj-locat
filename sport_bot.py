@@ -39,6 +39,7 @@ class Config:
     USER = ""  # 从本地 .env 或环境变量加载
     PASSWORD = ""  # 从本地 .env 或环境变量加载
     CLIENT_ID = ""  # 当前脚本客户端的随机标识；验证成功后可由用户选择信任
+    TRUST_CLIENT = False  # 只有用户明确同意后才启用学校的可信客户端选项
 
     # ========== 地理位置配置 ==========
     LONGITUDE = 108.654387  # 经度
@@ -136,12 +137,12 @@ def load_config():
                     raise ValueError(f".env 第 {number} 行引号未闭合")
                 value = value[1:-1]
             values[key.strip()] = value
-    for name in ("USER", "PASSWORD", "CLIENT_ID", "LONGITUDE", "LATITUDE", "SEND_EMAIL",
+    for name in ("USER", "PASSWORD", "CLIENT_ID", "TRUST_CLIENT", "LONGITUDE", "LATITUDE", "SEND_EMAIL",
                  "SMTP_AUTH_CODE", "EMAIL_SENDER", "EMAIL_RECEIVER",
                  "SEND_DESKTOP_NOTIFICATION"):
         key = f"SPORT_{name}"
         value = os.environ.get(key, values.get(key, getattr(Config, name)))
-        if name in ("SEND_EMAIL", "SEND_DESKTOP_NOTIFICATION"):
+        if name in ("SEND_EMAIL", "SEND_DESKTOP_NOTIFICATION", "TRUST_CLIENT"):
             normalized = str(value).lower()
             if normalized not in ("true", "false", "1", "0", "yes", "no"):
                 raise ValueError(f"{key} 必须为 true 或 false")
@@ -276,7 +277,10 @@ def prepare_login(user, password):
 def finish_login(context):
     """在相同会话中完成已通过所需验证的原始登录表单。"""
     sess = context["session"]
-    response = sess.post(context["login_post_url"], data=context["form_data"],
+    form = dict(context["form_data"])
+    if not form.get("trustAgent"):
+        form["trustAgent"] = "true" if Config.TRUST_CLIENT else "false"
+    response = sess.post(context["login_post_url"], data=form,
                          headers={"Referer": context["cas_login_url"]},
                          allow_redirects=False, timeout=30)
     if response.status_code != 302 or "Location" not in response.headers:

@@ -60,6 +60,7 @@ jobs:
           SPORT_USER: ${{ secrets.SPORT_USER }}
           SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
           SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
+          SPORT_TRUST_CLIENT: ${{ vars.SPORT_TRUST_CLIENT || 'false' }}
           SPORT_LONGITUDE: ${{ vars.SPORT_LONGITUDE || '108.654387' }}
           SPORT_LATITUDE: ${{ vars.SPORT_LATITUDE || '34.257229' }}
           SPORT_SEND_EMAIL: ${{ vars.SPORT_SEND_EMAIL || 'false' }}
@@ -92,6 +93,7 @@ jobs:
           SPORT_USER: ${{ secrets.SPORT_USER }}
           SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
           SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
+          SPORT_TRUST_CLIENT: ${{ vars.SPORT_TRUST_CLIENT || 'false' }}
           SPORT_LONGITUDE: ${{ vars.SPORT_LONGITUDE || '108.654387' }}
           SPORT_LATITUDE: ${{ vars.SPORT_LATITUDE || '34.257229' }}
           SPORT_SEND_EMAIL: ${{ vars.SPORT_SEND_EMAIL || 'false' }}

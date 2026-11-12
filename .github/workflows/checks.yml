@@ -71,6 +71,9 @@ jobs:
   cloud-login:
     if: github.event_name == 'push'
     needs: tests
+    concurrency:
+      group: xjtu-sport-${{ github.repository }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -93,6 +96,7 @@ jobs:
           SPORT_USER: ${{ secrets.SPORT_USER }}
           SPORT_PASSWORD: ${{ secrets.SPORT_PASSWORD }}
           SPORT_CLIENT_ID: ${{ secrets.SPORT_CLIENT_ID }}
+          SPORT_TRUST_CLIENT: ${{ vars.SPORT_TRUST_CLIENT || 'false' }}
         run: |
           python sport_bot.py --check-config
           python sport_bot.py --check-login

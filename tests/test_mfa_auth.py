@@ -100,6 +100,28 @@ class ReplyEncryptionTests(unittest.TestCase):
 
 
 class SameJobSessionTests(unittest.TestCase):
+    def login_context(self, form):
+        session = Mock()
+        session.post.return_value.status_code = 302
+        session.post.return_value.headers = {"Location": "https://org.xjtu.edu.cn/callback"}
+        callback = Mock(url="https://ipahw.xjtu.edu.cn/sso/callback?code=temporary-code")
+        token = response({"data": {"token": "verified-token"}})
+        session.get.side_effect = [callback, token]
+        return {"session": session, "login_post_url": "https://login.xjtu.edu.cn/cas/login",
+                "cas_login_url": "https://login.xjtu.edu.cn/cas/login", "form_data": form}
+
+    def test_trusted_client_uses_saved_explicit_consent(self):
+        context = self.login_context({"trustAgent": ""})
+        with patch.object(bot.Config, "TRUST_CLIENT", True):
+            self.assertEqual(bot.finish_login(context), "verified-token")
+        self.assertEqual(context["session"].post.call_args.kwargs["data"]["trustAgent"], "true")
+
+    def test_one_time_no_trust_choice_overrides_saved_preference(self):
+        context = self.login_context({"trustAgent": "false"})
+        with patch.object(bot.Config, "TRUST_CLIENT", True):
+            bot.finish_login(context)
+        self.assertEqual(context["session"].post.call_args.kwargs["data"]["trustAgent"], "false")
+
     def test_private_session_restores_cookie_domains_and_form(self):
         session = requests.Session()
         session.cookies.set("CAS", "secret-cookie", domain="login.xjtu.edu.cn", path="/cas", secure=True)

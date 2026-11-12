@@ -12,9 +12,11 @@
 
 真实登录在 MFA 检测阶段收到 `need=True`，学校要求额外安全验证，因此未执行签到、等待或签退。运行记录见 [云端验证结果](https://github.com/Augustrains/xj-locat/actions/runs/43137583320)。
 
-首次自动登录在额外验证处停止后，已补充学校原生手机/邮箱验证码流程和同一 GitHub job 内的加密回复通道。该流程需要本人在线参与；真实 MFA 和后续独立登录的结果仍待验证。定时配置保留为北京时间 12:07，只有实际验证通过后才视为可无人值守运行。
+首次自动登录在额外验证处停止后，已补充学校原生手机/邮箱验证码流程和同一 GitHub job 内的加密回复通道。[本人验证码登录](https://github.com/Augustrains/xj-locat/actions/runs/43139080172)已成功；[新的独立任务](https://github.com/Augustrains/xj-locat/actions/runs/43139452293)也成功登录，MFA 检测返回 `need=False`，未再次发送验证码。
 
-仓库包含两个工作流：
+每日北京时间 12:07 的工作流已启用。[完整签到签退测试](https://github.com/Augustrains/xj-locat/actions/runs/43139586099)正在进行；最终结果以该运行记录为准。本人已同意学校的可信客户端选项，保存为仓库变量 `SPORT_TRUST_CLIENT=true`，后续登录按该选择提交。
+
+仓库包含以下工作流：
 
 - **XJTU Daily Sport**：每天北京时间 **12:07** 执行签到、等待 31 分钟、签退。UTC 定时表达式为 `7 4 * * *`，任务超时为 55 分钟。同一时间只运行一个打卡任务，新任务不会取消正在等待签退的任务。
 - **Project Checks**：推送到 `main` 后自动运行离线测试、配置检查和不带账号的学校接口连通性探测；检查通过后，使用仓库 Secrets 验证学校登录。不会执行签到或签退。拉取请求只运行离线检查，不读取账号密码。
@@ -63,6 +65,7 @@ MFA 登录通过后，再启动一次 `request_mfa=false` 的独立登录检查�
 | `SPORT_LONGITUDE` | `108.654387` |
 | `SPORT_LATITUDE` | `34.257229` |
 | `SPORT_SEND_EMAIL` | `false`；设为 `true` 启用邮件 |
+| `SPORT_TRUST_CLIENT` | 默认 `false`；本人明确同意后设为 `true`，登录时使用学校的可信客户端选项。本仓库已获得本人同意并启用 |
 
 启用邮件时，还需添加三个 Repository secrets：`SPORT_SMTP_AUTH_CODE`、`SPORT_EMAIL_SENDER`、`SPORT_EMAIL_RECEIVER`。脚本使用 QQ 邮箱 SMTP SSL 465 端口。
 

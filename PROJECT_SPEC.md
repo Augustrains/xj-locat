@@ -12,4 +12,6 @@ GitHub 输入使用 Repository secrets。稳定客户端 ID 使用随机 Secret�
 
 完成条件：覆盖 MFA 初始化/发送/校验、失败与过期、回复加密和关联校验的离线测试；GitHub 上由用户参与一次正常 MFA；验证令牌获取；验证下一次独立登录与完整打卡的实际结果。外部认证要求按真实结果记录。
 
+当前证据：24 项离线测试通过；GitHub 运行 43139080172 已完成本人验证码登录并获取令牌；运行 43139452293 在全新 job 中 `need=False` 并成功登录。本人后续明确同意设为可信客户端，该选择保存为仓库变量 `SPORT_TRUST_CLIENT=true`；需要由对应新版登录复验。完整签到签退运行 43139586099 尚待结束。CI 登录与打卡共用同一并发组，避免测试时并行建立业务登录会话。
+
 接口依据：2026-11-12 读取的学校公开 CAS 登录页内 `mfaDetect`、`initGuard`、`securePhoneSend/Valid`、`secureEmailSend/Valid`、`submitForm`。原始页面仅保存在忽略目录 `.generated/mfa-research/`，不提交带临时表单状态的页面。

@@ -24,8 +24,8 @@ class LogRedactionTests(unittest.TestCase):
 
     def test_authentication_query_values_are_redacted(self):
         self.assertEqual(
-            self.filtered("callback https://example.com/?ticket=ST-example&code=oauth-example&token=token-example&state=1234"),
-            "callback https://example.com/?ticket=[REDACTED]&code=[REDACTED]&token=[REDACTED]&state=1234",
+            self.filtered("callback https://example.com/?ticket=ST-example&code=oauth-example&token=token-example&state=1234&gid=private-gid&fpVisitorId=private-client"),
+            "callback https://example.com/?ticket=[REDACTED]&code=[REDACTED]&token=[REDACTED]&state=[REDACTED]&gid=[REDACTED]&fpVisitorId=[REDACTED]",
         )
 
 

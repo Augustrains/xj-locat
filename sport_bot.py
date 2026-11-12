@@ -89,7 +89,7 @@ class RedactSecretsFilter(logging.Filter):
             if secret:
                 message = message.replace(secret, "[REDACTED]")
         message = re.sub(
-            r"(?i)([?&](?:token|access_token|refresh_token|id_token|code|ticket|password)=)[^&\s\"'<>]+",
+            r"(?i)([?&](?:token|access_token|refresh_token|id_token|code|ticket|password|state|mfaState|gid|execution|fpVisitorId)=)[^&\s\"'<>]+",
             r"\1[REDACTED]", message,
         )
         record.msg = message
